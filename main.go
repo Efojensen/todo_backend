@@ -21,7 +21,7 @@ type Todo struct {
 
 var collection *mongo.Collection
 
-func createTodo (w http.ResponseWriter, r *http.Request) {
+func createTodo(w http.ResponseWriter, r *http.Request) {
 	var todo Todo
 	err := json.NewDecoder(r.Body).Decode(&todo)
 
@@ -32,26 +32,39 @@ func createTodo (w http.ResponseWriter, r *http.Request) {
 
 	defer r.Body.Close()
 
-	newTodo, err := collection.InsertOne(context.Background(), todo)
+	res, err := collection.InsertOne(r.Context(), todo)
 	if err != nil {
 		http.Error(w, "Something went wrong", http.StatusInternalServerError)
+		return
 	}
 
-	json.NewEncoder(w).Encode(newTodo)
+	var new Todo;
+	err = collection.FindOne(r.Context(), bson.M{"_id": res.InsertedID}).Decode(&new)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
+
+	if err = json.NewEncoder(w).Encode(new); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 }
 
-func updateTodo (w http.ResponseWriter, r *http.Request) {
+func updateTodo(w http.ResponseWriter, r *http.Request) {
 
 }
 
-func deleteTodo (w http.ResponseWriter, r *http.Request) {
+func deleteTodo(w http.ResponseWriter, r *http.Request) {
 
 }
 
 func main() {
 	if err := godotenv.Load(); err != nil {
-		log.Fatal("Error loading csv file. Err: ", err)
+		log.Println("Error loading csv file. Err: ", err)
 	}
 
 	MONGODB_URI := os.Getenv("MONGODB_URI")
@@ -59,24 +72,26 @@ func main() {
 	client, err := mongo.Connect(context.Background(), clientOptions)
 
 	if err != nil {
-		log.Fatal("Err: ", err)
+		log.Println("Err: ", err)
 	}
 
+	defer client.Disconnect(context.Background())
+
 	if err := client.Ping(context.Background(), nil); err != nil {
-		log.Fatal("Database unable to be pinged")
+		log.Println("Database unable to be pinged")
 	}
 
 	fmt.Println("Connection to mongo client successful")
 
-	collection := client.Database("Career-Atlas").Collection("todos_v2")
+	collection = client.Database("Career-Atlas").Collection("todos_v2")
 
-	// Read Route
-	http.HandleFunc("/", func (w http.ResponseWriter, r *http.Request) {
+	// READ Route
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		var todos []Todo
 		cursor, err := collection.Find(context.Background(), bson.M{})
 
 		if err != nil {
-			log.Fatal("Err: ", err)
+			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
 
 		defer cursor.Close(context.Background())
@@ -84,17 +99,15 @@ func main() {
 		var todo Todo
 		for cursor.Next(context.Background()) {
 			if err := cursor.Decode(&todo); err != nil {
-				log.Fatal("Invalid structure\nActual err: ", err)
+				http.Error(w, "Invalid structure\nActual err: ", http.StatusNotFound)
 			}
 			todos = append(todos, todo)
 		}
 
-		jsonData, err := json.Marshal(todos)
-		if err != nil {
-			log.Fatal("Error unmarshaling data")
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(todos); err != nil {
+			log.Printf("Failed to encode todos: %v", err)
 		}
-
-		json.NewEncoder(w).Encode(jsonData)
 	})
 
 	// Create Route
