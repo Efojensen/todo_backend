@@ -38,7 +38,7 @@ func createTodo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var new Todo;
+	var new Todo
 	err = collection.FindOne(r.Context(), bson.M{"_id": res.InsertedID}).Decode(&new)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
